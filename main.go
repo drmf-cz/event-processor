@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Matovidlo/event-processor/pkg/eventprocessor"
+	"github.com/drmf-cz/event-processor/pkg/eventprocessor"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module github.com/Matovidlo/event-processor
+module github.com/drmf-cz/event-processor
 
 go 1.22
 
