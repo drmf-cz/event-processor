@@ -1,0 +1,57 @@
+# Cursor Rules for Go Project
+
+## Code Structure
+- Keep modules under 250 lines of code
+- Follow KISS (Keep It Simple, Stupid) and DRY (Don't Repeat Yourself) principles
+- Use meaningful package names that reflect their purpose
+- One package per directory
+
+## Testing
+- Maintain 80%+ test coverage
+- Write table-driven tests
+- Use testify for assertions
+- Mock external dependencies
+- Test error cases explicitly
+
+## Code Quality
+- Run golang-ci lint with strict settings
+- Zero tolerance for lint warnings
+- Use gofumpt for consistent formatting
+- Document all exported functions and types
+- Add examples in doc comments for complex functions
+
+## Error Handling
+- Custom errors for domain-specific cases
+- No naked returns
+- Always handle errors explicitly
+- Use error wrapping with context
+
+## Dependencies
+- Vendor all dependencies
+- Pin dependency versions
+- Regular security audits with `go mod verify`
+- Minimize external dependencies
+
+## Git Practices
+- Atomic commits
+- Conventional commit messages
+- Branch per feature
+- Rebase before merge
+
+## Performance
+- Benchmark critical paths
+- Profile before optimization
+- Use sync.Pool for frequent allocations
+- Consider memory allocations
+
+## Code Review
+- Two approvals required
+- No direct pushes to main
+- Address all review comments
+- Use pull request templates
+
+## Documentation
+- README.md in each package
+- Architecture decision records (ADR)
+- API documentation
+- Clear examples in docs 
