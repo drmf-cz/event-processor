@@ -2,45 +2,69 @@ version: '3.8'
 
 services:
   app:
-    image: golang:1.22
+    build:
+      context: .
+      dockerfile: Dockerfile
     working_dir: /app
     volumes:
       - .:/app
       - go-mod-cache:/go/pkg/mod
+      - ~/.local/share/nats/nsc/keys/creds:/app/creds  # Mount NATS credentials
     command: go run -tags=pprof main.go
     environment:
       - CGO_ENABLED=0
       - GOOS=linux
       - ENABLE_PPROF=true
       - GO111MODULE=on
-      - NATS_URL=nats://nats:4222
+      - NATS_URL=nats://test-token@nats:4222
     ports:
       - "8080:8080"
       - "6060:6060"  # pprof endpoint
+    networks:
+      - event-processor
     depends_on:
       - nats
-      - nats-streaming
-      - kafka
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+    command: go test ./... -v
+    environment:
+      - CGO_ENABLED=0
+      - GOOS=linux
+      - GO111MODULE=on
+      - NATS_URL=nats://test-token@nats:4222
+    networks:
+      - event-processor
+    depends_on:
+      - nats
 
   nats:
     image: nats:2.10.11
     ports:
-      - "4222:4222"
-      - "8222:8222"
-    command: --config /etc/nats/nats.conf
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP monitoring
+      - "6222:6222"  # Clustering
+    command: >
+      --config /etc/nats/nats.conf
     volumes:
-      - ./config/nats.conf:/etc/nats/nats.conf
+      - ./config/nats.conf:/etc/nats/nats.conf  # Use config
       - nats-data:/data/nats
-
-  nats-streaming:
-    image: nats-streaming:0.25.6
-    ports:
-      - "4223:4222"
-    command: -cid event-processor-cluster -store file -dir /data/nats-streaming
-    volumes:
-      - nats-streaming-data:/data/nats-streaming
-    depends_on:
-      - nats
+    networks:
+      - event-processor
+    healthcheck:
+      test: >
+        /bin/sh -c '
+        curl -f http://localhost:8222/healthz &&
+        nats stream add test.jetstream.subject --subjects "test.jetstream.subject" --retention limits --max-msgs=-1 --max-bytes=-1 --max-age=24h --storage file --replicas 1 --dupe-window 2m --no-allow-rollup || true'
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.3
@@ -52,6 +76,8 @@ services:
     volumes:
       - zookeeper-data:/var/lib/zookeeper/data
       - zookeeper-log:/var/lib/zookeeper/log
+    networks:
+      - event-processor
 
   kafka:
     image: confluentinc/cp-kafka:7.5.3
@@ -66,13 +92,18 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
       - ./config/kafka.conf:/etc/kafka/kafka.conf
+    networks:
+      - event-processor
     depends_on:
       - zookeeper
+
+networks:
+  event-processor:
+    driver: bridge
 
 volumes:
   go-mod-cache:
   nats-data:
-  nats-streaming-data:
   zookeeper-data:
   zookeeper-log:
   kafka-data: 
