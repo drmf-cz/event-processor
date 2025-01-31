@@ -2,55 +2,48 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/drmf-cz/event-processor/pkg/eventprocessor"
+	"github.com/drmf-cz/event-processor/pkg/eventprocessor/nats"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
 )
 
-func createConfig(logger *zap.Logger) *eventprocessor.Config {
-	return &eventprocessor.Config{
-		URL:           os.Getenv("NATS_URL"),
-		Token:         "test-token",
-		MaxReconnects: 5,
-		ReconnectWait: time.Second * 5,
-		Logger:        logger,
-	}
-}
-
-func setupClients(cfg *eventprocessor.Config) (
-	*eventprocessor.SimpleNatsClient,
-	*eventprocessor.JetStreamClient,
-	*eventprocessor.DedupJetStreamClient,
+func setupClients(cfg *nats.Config) (
+	*nats.SimpleNatsClient,
+	*nats.JetStreamClient,
+	*nats.DedupJetStreamClient,
 	error,
 ) {
-	simpleClient, err := eventprocessor.NewSimpleNatsClient(*cfg)
+	simpleClient, err := nats.NewSimpleNatsClient(cfg)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to create simple client: %w", err)
 	}
 
-	jsClient, err := eventprocessor.NewJetStreamClient(*cfg, jetstream.StreamConfig{
+	jsClient, err := nats.NewJetStreamClient(cfg, jetstream.StreamConfig{ //nolint: exhaustruct
 		Name:     "TEST_JETSREAM",
 		Subjects: []string{"test.jetstream1.>"},
 	})
 	if err != nil {
-		simpleClient.Close()
-		return nil, nil, nil, err
+		simpleClient.Close(context.Background())
+
+		return nil, nil, nil, fmt.Errorf("failed to create jetstream client: %w", err)
 	}
 
-	dedupeClient, err := eventprocessor.NewDedupJetStreamClient(*cfg, jetstream.StreamConfig{
+	dedupeClient, err := nats.NewDedupJetStreamClient(cfg, jetstream.StreamConfig{ //nolint: exhaustruct
 		Name:       "TEST_DEDUPE",
 		Subjects:   []string{"test.dedupe1.>"},
 		Duplicates: time.Minute,
 	})
 	if err != nil {
-		simpleClient.Close()
+		simpleClient.Close(context.Background())
 		jsClient.Close(context.Background())
-		return nil, nil, nil, err
+
+		return nil, nil, nil, fmt.Errorf("failed to create dedupe client: %w", err)
 	}
 
 	return simpleClient, jsClient, dedupeClient, nil
@@ -58,9 +51,7 @@ func setupClients(cfg *eventprocessor.Config) (
 
 func setupSubscriptions(
 	logger *zap.Logger,
-	simpleClient *eventprocessor.SimpleNatsClient,
-	jsClient *eventprocessor.JetStreamClient,
-	dedupeClient *eventprocessor.DedupJetStreamClient,
+	simpleClient *nats.SimpleNatsClient,
 ) {
 	if err := simpleClient.Subscribe("simple.events", func(data []byte) {
 		logger.Info("Simple client received message", zap.String("data", string(data)))
@@ -71,14 +62,12 @@ func setupSubscriptions(
 
 func publishMessages(
 	logger *zap.Logger,
-	simpleClient *eventprocessor.SimpleNatsClient,
-	jsClient *eventprocessor.JetStreamClient,
-	dedupeClient *eventprocessor.DedupJetStreamClient,
+	simpleClient *nats.SimpleNatsClient,
 ) {
 	for {
 		message := []byte(time.Now().String())
 
-		if err := simpleClient.Publish("simple.events", message); err != nil {
+		if err := simpleClient.PublishToStream(context.Background(), "simple.events", message); err != nil {
 			logger.Error("Failed to publish with simple client", zap.Error(err))
 		}
 
@@ -87,28 +76,29 @@ func publishMessages(
 }
 
 func main() {
-	logger, err := zap.NewProduction()
-	if err != nil {
-		panic("failed to initialize logger: " + err.Error())
-	}
-	defer logger.Sync()
-
-	cfg := createConfig(logger)
+	cfg := nats.NewConfig()
+	defer func() {
+		if err := cfg.Logger.Sync(); err != nil {
+			panic("failed to sync logger: " + err.Error())
+		}
+	}()
 
 	simpleClient, jsClient, dedupeClient, err := setupClients(cfg)
 	if err != nil {
-		logger.Fatal("Failed to setup clients", zap.Error(err))
+		cfg.Logger.Fatal("Failed to setup clients", zap.Error(err))
 	}
-	defer simpleClient.Close()
-	defer jsClient.Close(context.Background())
-	defer dedupeClient.Close(context.Background())
+	defer func() {
+		simpleClient.Close(context.Background())
+		jsClient.Close(context.Background())
+		dedupeClient.Close(context.Background())
+	}()
 
-	setupSubscriptions(logger, simpleClient, jsClient, dedupeClient)
+	setupSubscriptions(cfg.Logger, simpleClient)
 
-	go publishMessages(logger, simpleClient, jsClient, dedupeClient)
+	go publishMessages(cfg.Logger, simpleClient)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
-	logger.Info("Shutting down...")
+	cfg.Logger.Info("Shutting down...")
 }

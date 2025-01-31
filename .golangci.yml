@@ -1,6 +1,4 @@
 linters-settings:
-  govet:
-    check-shadowing: true
   golint:
     min-confidence: 0
   gocyclo:
@@ -41,16 +39,7 @@ linters:
   enable-all: true
   disable:
     - gocritic
-    - maligned # deprecated
-    - interfacer # deprecated
-    - scopelint # deprecated
-    - golint # deprecated
-    - exhaustivestruct # deprecated
-    - nosnakecase # deprecated
-    - deadcode # deprecated
-    - structcheck # deprecated
-    - varcheck # deprecated
-    - ifshort # deprecated
+    - exportloopref
     - depguard # we manage deps in go.mod
     - varnamelen # too opinionated
     - wsl # too opinionated
@@ -58,11 +47,11 @@ linters:
 run:
   timeout: 5m
   tests: true
-  skip-dirs:
-    - vendor/
-    - third_party/
 
 issues:
+  exclude-dirs:
+    - vendor/
+    - third_party/
   exclude-rules:
     - path: _test\.go
       linters:
