@@ -1,45 +1,93 @@
 package eventprocessor
 
 import (
+	"context"
 	"fmt"
-	"time"
 
-	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"go.uber.org/zap"
 )
 
-// DeDupeJetStreamClient implements NATS JetStream with deduplication
-type DeDupeJetStreamClient struct {
+// DeDupeJetStreamClient implements NATS JetStream with deduplication.
+type DedupJetStreamClient struct {
 	*JetStreamClient
-	dedupeWindow time.Duration
+	config Config
+	logger *zap.Logger
 }
 
-// NewDeDupeJetStreamClient creates a new NATS JetStream client with deduplication
-func NewDeDupeJetStreamClient(cfg Config) (*DeDupeJetStreamClient, error) {
-	js, err := NewJetStreamClient(cfg)
+// NewDedupJetStreamClient creates a new NATS JetStream client with deduplication.
+func NewDedupJetStreamClient(cfg Config, streamConfig jetstream.StreamConfig) (*DedupJetStreamClient, error) {
+	js, err := NewJetStreamClient(cfg, streamConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	return &DeDupeJetStreamClient{
+	if cfg.Logger == nil {
+		return nil, fmt.Errorf("logger is required in config")
+	}
+
+	return &DedupJetStreamClient{
 		JetStreamClient: js,
-		dedupeWindow:    cfg.DeDupeWindow,
+		config:          cfg,
+		logger:          cfg.Logger,
 	}, nil
 }
 
-func (c *DeDupeJetStreamClient) Publish(subject string, data []byte) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	// Add message ID for deduplication
-	msgID := fmt.Sprintf("%d", time.Now().UnixNano())
-	_, err := c.js.Publish(subject, data, nats.MsgId(msgID))
+// PublishToStream publishes a message to a stream
+func (c *DedupJetStreamClient) PublishToStream(ctx context.Context, topic string, data []byte) error {
+	_, err := c.js.Publish(ctx, topic, data)
 	return err
 }
 
-func (c *DeDupeJetStreamClient) Subscribe(subject string, handler func([]byte)) error {
-	// Configure consumer with deduplication
-	_, err := c.js.Subscribe(subject, func(msg *nats.Msg) {
-		handler(msg.Data)
-	}, nats.DeliverAll(), nats.AckWait(c.dedupeWindow))
-	return err
+// DeduplicateConsumer creates a durable pull consumer with deduplication for the stream
+func (c *DedupJetStreamClient) DeduplicateConsumer(ctx context.Context, name string) (jetstream.ConsumeContext, error) {
+	c.logger.Info("creating deduplicated consumer",
+		zap.String("stream", c.streamConfig.Name),
+		zap.String("name", name),
+		zap.Duration("dedupe_window", c.streamConfig.Duplicates),
+	)
+
+	consumerConfig := jetstream.ConsumerConfig{
+		Name:          name,
+		Durable:       name,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	}
+
+	consumer, err := c.stream.CreateOrUpdateConsumer(ctx, consumerConfig)
+	if err != nil {
+		c.logger.Error("failed to create consumer",
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("failed to create consumer: %w", err)
+	}
+
+	c.logger.Info("consumer created successfully",
+		zap.String("name", name),
+	)
+
+	// Create consume context with options
+	return consumer.Consume(func(msg jetstream.Msg) {
+		defer msg.Ack()
+		meta, err := msg.Metadata()
+		if err != nil {
+			c.logger.Error("failed to get metadata",
+				zap.Error(err),
+				zap.String("subject", msg.Subject()),
+			)
+			return
+		}
+
+		c.logger.Info("received deduplicated message",
+			zap.Uint64("sequence", meta.Sequence.Consumer),
+			zap.String("subject", msg.Subject()),
+			zap.String("consumer", name),
+		)
+	})
+}
+
+// Close closes the NATS connection
+func (c *DedupJetStreamClient) Close(ctx context.Context) error {
+	return c.JetStreamClient.Close(ctx)
 }

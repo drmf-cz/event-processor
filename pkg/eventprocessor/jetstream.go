@@ -1,22 +1,27 @@
 package eventprocessor
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"go.uber.org/zap"
 )
 
-// JetStreamClient implements NATS JetStream functionality
+// JetStreamClient implements NATS JetStream functionality.
 type JetStreamClient struct {
-	conn   *nats.Conn
-	js     nats.JetStreamContext
-	mu     sync.RWMutex
-	config Config
+	conn         *nats.Conn
+	js           jetstream.JetStream
+	mu           sync.RWMutex
+	config       Config
+	stream       jetstream.Stream
+	streamConfig jetstream.StreamConfig
 }
 
-// NewJetStreamClient creates a new NATS JetStream client
-func NewJetStreamClient(cfg Config) (*JetStreamClient, error) {
+// NewJetStreamClient creates a new NATS JetStream client.
+func NewJetStreamClient(cfg Config, streamConfig jetstream.StreamConfig) (*JetStreamClient, error) {
 	opts := []nats.Option{
 		nats.Token(cfg.Token),
 		nats.MaxReconnects(cfg.MaxReconnects),
@@ -28,32 +33,61 @@ func NewJetStreamClient(cfg Config) (*JetStreamClient, error) {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 
-	js, err := nc.JetStream()
+	js, err := jetstream.New(nc)
 	if err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
-	return &JetStreamClient{conn: nc, js: js, config: cfg}, nil
+	stream, err := js.CreateStream(context.Background(), streamConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stream: %w", err)
+	}
+
+	return &JetStreamClient{conn: nc, js: js, config: cfg, streamConfig: streamConfig, stream: stream}, nil
 }
 
-func (c *JetStreamClient) Publish(subject string, data []byte) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	_, err := c.js.Publish(subject, data)
-	return err
+// PublishToStream publishes a message to a stream
+func (c *JetStreamClient) PublishToStream(ctx context.Context, topic string, data []byte) (*jetstream.PubAck, error) {
+	return c.js.Publish(ctx, topic, data)
 }
 
-func (c *JetStreamClient) Subscribe(subject string, handler func([]byte)) error {
-	_, err := c.js.Subscribe(subject, func(msg *nats.Msg) {
-		handler(msg.Data)
-	}, nats.DeliverAll())
-	return err
+// CreateConsumer creates a durable pull consumer for the stream
+func (c *JetStreamClient) CreateConsumer(ctx context.Context, name string) (jetstream.ConsumeContext, error) {
+	consumerConfig := jetstream.ConsumerConfig{
+		Name:          name,
+		Durable:       name,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	}
+
+	consumer, err := c.stream.CreateOrUpdateConsumer(ctx, consumerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create consumer: %w", err)
+	}
+
+	// Create consume context with options
+	return consumer.Consume(func(msg jetstream.Msg) {
+		defer msg.Ack()
+		meta, err := msg.Metadata()
+		if err != nil {
+			c.config.Logger.Error("failed to get metadata",
+				zap.Error(err))
+			return
+		}
+
+		c.config.Logger.Info("received message",
+			zap.Uint64("consumer_sequence", meta.Sequence.Consumer),
+			zap.String("subject", msg.Subject()))
+	})
 }
 
-func (c *JetStreamClient) Close() error {
+// Close closes the NATS connection
+func (c *JetStreamClient) Close(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.js.DeleteStream(ctx, c.streamConfig.Name)
 	c.conn.Close()
+
 	return nil
 }
