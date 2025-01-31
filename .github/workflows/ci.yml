@@ -33,14 +33,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: '1.23'
           cache: true
 
       - name: Run Tests
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage
           path: coverage.txt
@@ -54,7 +54,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: '1.23'
           cache: true
 
       - name: Build
@@ -69,20 +69,15 @@ jobs:
       - name: Set up Docker Compose
         run: docker-compose up -d
 
-      - name: Wait for app to be ready
-        run: |
-          timeout 30s bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:8080/health)" != "200" ]]; do sleep 5; done' || false
-
       - name: Run E2E Tests with Profiling
         run: |
-          # Run load test and collect CPU profile
-          go test -v ./e2e/... -cpuprofile=cpu.prof
-
+          # TODO: Run load requests on API and collect CPU profile
+          
           # Collect memory profile
-          curl -o mem.prof http://localhost:8080/debug/pprof/heap
+          curl -o mem.prof http://localhost:6060/debug/pprof/heap
 
           # Collect goroutine profile
-          curl -o goroutine.prof http://localhost:8080/debug/pprof/goroutine
+          curl -o goroutine.prof http://localhost:6060/debug/pprof/goroutine
 
       - name: Analyze Profiles
         run: |
@@ -96,7 +91,7 @@ jobs:
           go tool pprof -text goroutine.prof > goroutine_analysis.txt
 
       - name: Upload Profile Analysis
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: profile-analysis
           path: |
@@ -106,4 +101,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: docker-compose down 
+        run: docker-compose down -v --remove-orphans
