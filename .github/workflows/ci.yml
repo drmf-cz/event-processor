@@ -42,7 +42,12 @@ jobs:
           sleep 10
 
       - name: Run Tests
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+        env:
+          NATS_URL: ${{ secrets.NATS_URL }}
+        run: |
+          # Run tests with coverage and race detection
+          echo "NATS_URL: ${{ env.NATS_URL }}"
+          NATS_URL=${{ env.NATS_URL }} go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
