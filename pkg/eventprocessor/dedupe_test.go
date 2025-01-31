@@ -1,69 +1,139 @@
 package eventprocessor
 
 import (
+	"context"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
+	"go.uber.org/zap/zaptest/observer"
+)
+
+const (
+	invalidNatsURL = "nats://invalid:4222"
 )
 
 func TestDeDupeJetStreamClient(t *testing.T) {
+	t.Parallel()
+
+	// Create test logger
+	logger := zaptest.NewLogger(t)
+	defer logger.Sync()
+
 	cfg := Config{
-		URL:           "nats://localhost:4222",
-		Token:         "development-token-123",
+		URL:           "nats://nats:4222",
+		Token:         "test-token",
 		MaxReconnects: 5,
 		ReconnectWait: time.Second,
-		DeDupeWindow:  time.Second * 30,
+		Logger:        logger,
 	}
 
 	t.Run("NewDeDupeJetStreamClient", func(t *testing.T) {
-		client, err := NewDeDupeJetStreamClient(cfg)
-		require.NoError(t, err)
-		require.NotNil(t, client)
-		defer client.Close()
-	})
-
-	t.Run("PublishSubscribeWithDedupe", func(t *testing.T) {
-		client, err := NewDeDupeJetStreamClient(cfg)
-		require.NoError(t, err)
-		defer client.Close()
-
-		msgChan := make(chan []byte, 2)
-		err = client.Subscribe("test.dedupe.subject", func(data []byte) {
-			msgChan <- data
+		t.Parallel()
+		client, err := NewDedupJetStreamClient(cfg, jetstream.StreamConfig{
+			Name:       "TEST_DEDUPE",
+			Subjects:   []string{"test.dedupe1.>"},
+			Duplicates: time.Minute,
 		})
 		require.NoError(t, err)
+		require.NotNil(t, client)
+		defer client.Close(context.Background())
+	})
 
-		testMsg := []byte("test dedupe message")
+	t.Run("ConsumerTest", func(t *testing.T) {
+		t.Parallel()
 
-		// Send same message twice quickly
-		err = client.Publish("test.dedupe.subject", testMsg)
+		// Create test logger with observer for assertions
+		core, logs := observer.New(zap.InfoLevel)
+		logger := zap.New(core)
+		testCfg := cfg
+		testCfg.Logger = logger
+
+		client, err := NewDedupJetStreamClient(testCfg, jetstream.StreamConfig{
+			Name:       "TEST_DEDUPE",
+			Subjects:   []string{"test.dedupe2.>"},
+			Duplicates: time.Minute,
+		})
 		require.NoError(t, err)
-		err = client.Publish("test.dedupe.subject", testMsg)
+		defer client.Close(context.Background())
+
+		// Create context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Publish 100 messages to the stream
+		go func() {
+			for range 2 {
+				for i := 0; i < 100; i++ {
+					err = client.PublishToStream(ctx, "test.dedupe2."+strconv.Itoa(i), []byte("test-"+strconv.Itoa(i)))
+					require.NoError(t, err)
+				}
+			}
+		}()
+
+		// Create consumer and start consuming
+		cc, err := client.DeduplicateConsumer(ctx, "test-consumer")
 		require.NoError(t, err)
+		require.NotNil(t, cc)
+		defer cc.Stop()
 
-		// Should only receive one message due to deduplication
+		// Wait for all messages to be processed
 		select {
-		case receivedMsg := <-msgChan:
-			assert.Equal(t, testMsg, receivedMsg)
-		case <-time.After(time.Second * 5):
-			t.Fatal("timeout waiting for first message")
-		}
+		case <-ctx.Done():
+			t.Fatal("context deadline exceeded")
+		default:
+			// Check logs until we find the 100th message
+			require.Eventually(t, func() bool {
+				entries := logs.All()
+				count := 0
+				for _, entry := range entries {
+					if count == 100 && len(entries) > 200 {
+						break
+					}
+					if sub, ok := entry.ContextMap()["subject"].(string); ok {
+						msg := strings.SplitAfterN(sub, ".", 3)[2]
+						seq, err := strconv.ParseInt(msg, 10, 64)
+						if err != nil {
+							t.Fatal(err)
+						}
 
-		// Should not receive second message
-		select {
-		case <-msgChan:
-			t.Fatal("received duplicate message")
-		case <-time.After(time.Second):
-			// This is expected
+						if seq > int64(count) {
+							count = int(seq) + 1
+						}
+					}
+				}
+
+				return true
+			}, 5*time.Second, 100*time.Millisecond, "did not receive all 100 messages or stream deduplication is not working")
+
+			// Verify log messages contain expected fields
+			logEntries := logs.All()
+			require.True(t, len(logEntries) > 0, "expected some log messages")
+
+			for _, entry := range logEntries {
+				if entry.Message == "received deduplicated message" {
+					fields := entry.ContextMap()
+					require.Contains(t, fields, "sequence")
+					require.Contains(t, fields, "subject")
+				}
+			}
 		}
 	})
 
 	t.Run("InvalidConnection", func(t *testing.T) {
+		t.Parallel()
 		invalidCfg := cfg
-		invalidCfg.URL = "nats://invalid:4222"
-		_, err := NewDeDupeJetStreamClient(invalidCfg)
+		invalidCfg.URL = invalidNatsURL
+		_, err := NewDedupJetStreamClient(invalidCfg, jetstream.StreamConfig{
+			Name:     "TEST_DEDUPE",
+			Subjects: []string{"test.dedupe3.>"},
+		})
 		assert.Error(t, err)
 	})
 }
