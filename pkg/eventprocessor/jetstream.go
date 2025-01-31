@@ -18,6 +18,7 @@ type JetStreamClient struct {
 	config       Config
 	stream       jetstream.Stream
 	streamConfig jetstream.StreamConfig
+	logger       *zap.Logger
 }
 
 // NewJetStreamClient creates a new NATS JetStream client.
@@ -36,6 +37,7 @@ func NewJetStreamClient(cfg Config, streamConfig jetstream.StreamConfig) (*JetSt
 	js, err := jetstream.New(nc)
 	if err != nil {
 		nc.Close()
+
 		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
@@ -44,15 +46,19 @@ func NewJetStreamClient(cfg Config, streamConfig jetstream.StreamConfig) (*JetSt
 		return nil, fmt.Errorf("failed to create stream: %w", err)
 	}
 
-	return &JetStreamClient{conn: nc, js: js, config: cfg, streamConfig: streamConfig, stream: stream}, nil
+	return &JetStreamClient{conn: nc, js: js, config: cfg, streamConfig: streamConfig, stream: stream, logger: cfg.Logger}, nil
 }
 
-// PublishToStream publishes a message to a stream
-func (c *JetStreamClient) PublishToStream(ctx context.Context, topic string, data []byte) (*jetstream.PubAck, error) {
-	return c.js.Publish(ctx, topic, data)
+// PublishToStream publishes a message to a stream.
+func (c *JetStreamClient) PublishToStream(ctx context.Context, topic string, data []byte) error {
+	_, err := c.js.Publish(ctx, topic, data)
+	if err != nil {
+		return fmt.Errorf("failed to publish message: %w", err)
+	}
+	return nil
 }
 
-// CreateConsumer creates a durable pull consumer for the stream
+// CreateConsumer creates a durable pull consumer for the stream.
 func (c *JetStreamClient) CreateConsumer(ctx context.Context, name string) (jetstream.ConsumeContext, error) {
 	consumerConfig := jetstream.ConsumerConfig{
 		Name:          name,
@@ -68,21 +74,26 @@ func (c *JetStreamClient) CreateConsumer(ctx context.Context, name string) (jets
 
 	// Create consume context with options
 	return consumer.Consume(func(msg jetstream.Msg) {
-		defer msg.Ack()
+		defer func() {
+			if err := msg.Ack(); err != nil {
+				c.logger.Error("failed to acknowledge message", zap.Error(err))
+			}
+		}()
 		meta, err := msg.Metadata()
 		if err != nil {
-			c.config.Logger.Error("failed to get metadata",
+			c.logger.Error("failed to get metadata",
 				zap.Error(err))
+
 			return
 		}
 
-		c.config.Logger.Info("received message",
+		c.logger.Info("received message",
 			zap.Uint64("consumer_sequence", meta.Sequence.Consumer),
 			zap.String("subject", msg.Subject()))
 	})
 }
 
-// Close closes the NATS connection
+// Close closes the NATS connection.
 func (c *JetStreamClient) Close(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

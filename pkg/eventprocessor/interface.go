@@ -1,15 +1,25 @@
 package eventprocessor
 
 import (
+	"context"
+	"errors"
 	"os"
 	"time"
 
 	"go.uber.org/zap"
 )
 
+// Common errors
+var (
+	ErrInvalidConfig = errors.New("invalid configuration")
+)
+
 // EventProcessor defines the interface for different event processing strategies.
 type EventProcessor interface {
-	Close() error
+	// PublishToStream publishes a message to a stream.
+	PublishToStream(ctx context.Context, topic string, data []byte) error
+	// Close closes the connection.
+	Close(ctx context.Context) error
 }
 
 // Config holds common configuration for event processors.
@@ -22,7 +32,7 @@ type Config struct {
 	Logger        *zap.Logger
 }
 
-// NewConfig creates a new configuration with values from environment
+// NewConfig creates a new configuration with values from environment.
 func NewConfig() *Config {
 	logger, err := zap.NewProduction()
 	if err != nil {

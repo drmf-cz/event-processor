@@ -23,7 +23,7 @@ func NewDedupJetStreamClient(cfg Config, streamConfig jetstream.StreamConfig) (*
 	}
 
 	if cfg.Logger == nil {
-		return nil, fmt.Errorf("logger is required in config")
+		return nil, fmt.Errorf("logger is required in config: %w", ErrInvalidConfig)
 	}
 
 	return &DedupJetStreamClient{
@@ -33,13 +33,16 @@ func NewDedupJetStreamClient(cfg Config, streamConfig jetstream.StreamConfig) (*
 	}, nil
 }
 
-// PublishToStream publishes a message to a stream
+// PublishToStream publishes a message to a stream.
 func (c *DedupJetStreamClient) PublishToStream(ctx context.Context, topic string, data []byte) error {
 	_, err := c.js.Publish(ctx, topic, data)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to publish message: %w", err)
+	}
+	return nil
 }
 
-// DeduplicateConsumer creates a durable pull consumer with deduplication for the stream
+// DeduplicateConsumer creates a durable pull consumer with deduplication for the stream.
 func (c *DedupJetStreamClient) DeduplicateConsumer(ctx context.Context, name string) (jetstream.ConsumeContext, error) {
 	c.logger.Info("creating deduplicated consumer",
 		zap.String("stream", c.streamConfig.Name),
@@ -60,6 +63,7 @@ func (c *DedupJetStreamClient) DeduplicateConsumer(ctx context.Context, name str
 			zap.String("name", name),
 			zap.Error(err),
 		)
+
 		return nil, fmt.Errorf("failed to create consumer: %w", err)
 	}
 
@@ -69,13 +73,18 @@ func (c *DedupJetStreamClient) DeduplicateConsumer(ctx context.Context, name str
 
 	// Create consume context with options
 	return consumer.Consume(func(msg jetstream.Msg) {
-		defer msg.Ack()
+		defer func() {
+			if err := msg.Ack(); err != nil {
+				c.logger.Error("failed to acknowledge message", zap.Error(err))
+			}
+		}()
 		meta, err := msg.Metadata()
 		if err != nil {
 			c.logger.Error("failed to get metadata",
 				zap.Error(err),
 				zap.String("subject", msg.Subject()),
 			)
+
 			return
 		}
 
@@ -87,7 +96,10 @@ func (c *DedupJetStreamClient) DeduplicateConsumer(ctx context.Context, name str
 	})
 }
 
-// Close closes the NATS connection
+// Close closes the NATS connection.
 func (c *DedupJetStreamClient) Close(ctx context.Context) error {
+	if err := c.js.DeleteStream(ctx, c.streamConfig.Name); err != nil {
+		c.logger.Error("failed to delete stream", zap.Error(err))
+	}
 	return c.JetStreamClient.Close(ctx)
 }
