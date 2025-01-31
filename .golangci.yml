@@ -1,0 +1,75 @@
+linters-settings:
+  govet:
+    check-shadowing: true
+  golint:
+    min-confidence: 0
+  gocyclo:
+    min-complexity: 15
+  maligned:
+    suggest-new: true
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 2
+    min-occurrences: 2
+  misspell:
+    locale: US
+  lll:
+    line-length: 140
+  goimports:
+    local-prefixes: github.com/drmf-cz/event-processor
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+  funlen:
+    lines: 100
+    statements: 50
+  gocognit:
+    min-complexity: 15
+  godox:
+    keywords:
+      - NOTE
+      - TODO
+      - FIXME
+      - BUG
+
+linters:
+  enable-all: true
+  disable:
+    - gocritic
+    - maligned # deprecated
+    - interfacer # deprecated
+    - scopelint # deprecated
+    - golint # deprecated
+    - exhaustivestruct # deprecated
+    - nosnakecase # deprecated
+    - deadcode # deprecated
+    - structcheck # deprecated
+    - varcheck # deprecated
+    - ifshort # deprecated
+    - depguard # we manage deps in go.mod
+    - varnamelen # too opinionated
+    - wsl # too opinionated
+
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - vendor/
+    - third_party/
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gomnd
+        - dupl
+    - path: _test\.go
+      text: "weak cryptographic primitive"
+  max-same-issues: 0
+  max-issues-per-linter: 0
+  fix: true 

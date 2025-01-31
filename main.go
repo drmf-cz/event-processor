@@ -1,111 +1,114 @@
 package main
 
 import (
-	"log"
+	"context"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/drmf-cz/event-processor/pkg/eventprocessor"
+	"github.com/nats-io/nats.go/jetstream"
+	"go.uber.org/zap"
 )
 
-func main() {
-	cfg := eventprocessor.Config{
+func createConfig(logger *zap.Logger) *eventprocessor.Config {
+	return &eventprocessor.Config{
 		URL:           os.Getenv("NATS_URL"),
-		ClusterID:     "event-processor-cluster",
-		ClientID:      "example-client",
-		Token:         "development-token-123",
-		DeDupeWindow:  time.Minute,
+		Token:         "test-token",
 		MaxReconnects: 5,
 		ReconnectWait: time.Second * 5,
+		Logger:        logger,
+	}
+}
+
+func setupClients(cfg *eventprocessor.Config) (
+	*eventprocessor.SimpleNatsClient,
+	*eventprocessor.JetStreamClient,
+	*eventprocessor.DedupJetStreamClient,
+	error,
+) {
+	simpleClient, err := eventprocessor.NewSimpleNatsClient(*cfg)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
-	// Example with Simple NATS
-	simpleClient, err := eventprocessor.NewSimpleNatsClient(cfg)
+	jsClient, err := eventprocessor.NewJetStreamClient(*cfg, jetstream.StreamConfig{
+		Name:     "TEST_JETSREAM",
+		Subjects: []string{"test.jetstream1.>"},
+	})
 	if err != nil {
-		log.Fatalf("Failed to create simple NATS client: %v", err)
+		simpleClient.Close()
+		return nil, nil, nil, err
+	}
+
+	dedupeClient, err := eventprocessor.NewDedupJetStreamClient(*cfg, jetstream.StreamConfig{
+		Name:       "TEST_DEDUPE",
+		Subjects:   []string{"test.dedupe1.>"},
+		Duplicates: time.Minute,
+	})
+	if err != nil {
+		simpleClient.Close()
+		jsClient.Close(context.Background())
+		return nil, nil, nil, err
+	}
+
+	return simpleClient, jsClient, dedupeClient, nil
+}
+
+func setupSubscriptions(
+	logger *zap.Logger,
+	simpleClient *eventprocessor.SimpleNatsClient,
+	jsClient *eventprocessor.JetStreamClient,
+	dedupeClient *eventprocessor.DedupJetStreamClient,
+) {
+	if err := simpleClient.Subscribe("simple.events", func(data []byte) {
+		logger.Info("Simple client received message", zap.String("data", string(data)))
+	}); err != nil {
+		logger.Error("Failed to subscribe with simple client", zap.Error(err))
+	}
+}
+
+func publishMessages(
+	logger *zap.Logger,
+	simpleClient *eventprocessor.SimpleNatsClient,
+	jsClient *eventprocessor.JetStreamClient,
+	dedupeClient *eventprocessor.DedupJetStreamClient,
+) {
+	for {
+		message := []byte(time.Now().String())
+
+		if err := simpleClient.Publish("simple.events", message); err != nil {
+			logger.Error("Failed to publish with simple client", zap.Error(err))
+		}
+
+		time.Sleep(time.Second)
+	}
+}
+
+func main() {
+	logger, err := zap.NewProduction()
+	if err != nil {
+		panic("failed to initialize logger: " + err.Error())
+	}
+	defer logger.Sync()
+
+	cfg := createConfig(logger)
+
+	simpleClient, jsClient, dedupeClient, err := setupClients(cfg)
+	if err != nil {
+		logger.Fatal("Failed to setup clients", zap.Error(err))
 	}
 	defer simpleClient.Close()
+	defer jsClient.Close(context.Background())
+	defer dedupeClient.Close(context.Background())
 
-	// Example with JetStream
-	jsClient, err := eventprocessor.NewJetStreamClient(cfg)
-	if err != nil {
-		log.Fatalf("Failed to create JetStream client: %v", err)
-	}
-	defer jsClient.Close()
+	setupSubscriptions(logger, simpleClient, jsClient, dedupeClient)
 
-	// Example with Deduplication
-	dedupeClient, err := eventprocessor.NewDeDupeJetStreamClient(cfg)
-	if err != nil {
-		log.Fatalf("Failed to create DeDupe client: %v", err)
-	}
-	defer dedupeClient.Close()
+	go publishMessages(logger, simpleClient, jsClient, dedupeClient)
 
-	// Example with Streaming
-	streamingClient, err := eventprocessor.NewStreamingClient(cfg)
-	if err != nil {
-		log.Fatalf("Failed to create Streaming client: %v", err)
-	}
-	defer streamingClient.Close()
-
-	// Subscribe to messages
-	err = simpleClient.Subscribe("simple.events", func(data []byte) {
-		log.Printf("Simple client received: %s", string(data))
-	})
-	if err != nil {
-		log.Printf("Failed to subscribe with simple client: %v", err)
-	}
-
-	err = jsClient.Subscribe("js.events", func(data []byte) {
-		log.Printf("JetStream client received: %s", string(data))
-	})
-	if err != nil {
-		log.Printf("Failed to subscribe with JetStream client: %v", err)
-	}
-
-	err = dedupeClient.Subscribe("dedupe.events", func(data []byte) {
-		log.Printf("DeDupe client received: %s", string(data))
-	})
-	if err != nil {
-		log.Printf("Failed to subscribe with DeDupe client: %v", err)
-	}
-
-	err = streamingClient.Subscribe("streaming.events", func(data []byte) {
-		log.Printf("Streaming client received: %s", string(data))
-	})
-	if err != nil {
-		log.Printf("Failed to subscribe with Streaming client: %v", err)
-	}
-
-	// Publish example messages
-	go func() {
-		for i := 0; ; i++ {
-			message := []byte(time.Now().String())
-
-			if err := simpleClient.Publish("simple.events", message); err != nil {
-				log.Printf("Failed to publish with simple client: %v", err)
-			}
-
-			if err := jsClient.Publish("js.events", message); err != nil {
-				log.Printf("Failed to publish with JetStream client: %v", err)
-			}
-
-			if err := dedupeClient.Publish("dedupe.events", message); err != nil {
-				log.Printf("Failed to publish with DeDupe client: %v", err)
-			}
-
-			if err := streamingClient.Publish("streaming.events", message); err != nil {
-				log.Printf("Failed to publish with Streaming client: %v", err)
-			}
-
-			time.Sleep(time.Second)
-		}
-	}()
-
-	// Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
-	log.Println("Shutting down...")
+	logger.Info("Shutting down...")
 }

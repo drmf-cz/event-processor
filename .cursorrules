@@ -55,3 +55,32 @@
 - Architecture decision records (ADR)
 - API documentation
 - Clear examples in docs 
+
+## Linting with golangci-lint
+- Run `golangci-lint run` before each commit
+- All linter warnings must be fixed before merging
+- Configuration in `.golangci.yml`:
+  - Enable all linters except deprecated ones
+  - Max line length: 140 characters
+  - Max function length: 100 lines
+  - Max cyclomatic complexity: 15
+  - Enforce consistent import grouping
+  - Check for shadowed variables
+  - Detect code duplications
+  - Enforce consistent error handling
+  - Check for common mistakes and code style
+- Use `golangci-lint run --fix` to auto-fix issues when possible
+- Document any linter disabling with clear comments
+- Regular linter configuration updates with team consensus 
+
+## NATS JWT Authorization
+- NATS uses JWTs for secure authentication and authorization.
+- Operators manage accounts and users, each with unique JWTs.
+- JWTs are signed, ensuring authenticity and integrity.
+- Clients authenticate using credentials files containing JWTs.
+- The server verifies JWTs against the operator's public key.
+- Permissions are defined per account, controlling publish/subscribe access.
+- JWTs can be revoked or updated without server restarts.
+- Use `nsc` to manage operators, accounts, and users.
+- Store JWTs securely and avoid hardcoding them in applications.
+- JWTs provide fine-grained access control and auditability. 
