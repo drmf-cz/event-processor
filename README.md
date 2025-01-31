@@ -23,16 +23,38 @@ This repository contains:
    - Persistent message storage
    - Stream management
    - Enhanced delivery guarantees
+   - Configurable consumer settings
 
 3. **Deduplication Client**
    - Message ID-based deduplication
    - Configurable deduplication window
    - Built on JetStream capabilities
+   - Prevents duplicate message processing
 
 4. **Streaming Client**
    - Durable subscriptions
    - Message persistence
    - At-least-once delivery
+
+## Configuration
+
+### Default Constants
+The system uses predefined constants for configuration (see `pkg/eventprocessor/constants.go`):
+```go
+// Connection Settings
+DefaultMaxReconnects = 5
+DefaultReconnectWaitSeconds = 5
+
+// JetStream Consumer Settings
+DefaultMaxRequestBatch = 100
+DefaultMaxRequestMaxBytes = 1024 * 1024  // 1MB
+DefaultInactiveThresholdMultiplier = 2
+```
+
+### Environment Variables
+- `NATS_URL`: NATS server URL
+- `NATS_TOKEN`: Authentication token (deprecated)
+- `NATS_CREDS`: Path to credentials file for JWT authentication
 
 ## Development
 
@@ -58,6 +80,12 @@ go test ./...
 # Run specific client tests
 go test ./pkg/eventprocessor -run TestSimpleNatsClient
 ```
+
+### Code Quality
+- Follows Go best practices
+- Uses golangci-lint for code quality
+- Enforces consistent code style
+- Maintains high test coverage
 
 ## Educational Materials
 
@@ -90,6 +118,16 @@ The system supports various configuration options through:
 3. Commit your changes
 4. Push to the branch
 5. Create a new Pull Request
+
+## Code Structure
+```
+pkg/eventprocessor/
+├── constants.go    # Shared constants and configuration
+├── interface.go    # Core interfaces and types
+├── simple.go       # Basic NATS implementation
+├── jetstream.go    # JetStream functionality
+└── dedupe.go       # Deduplication logic
+```
 
 ## License
 

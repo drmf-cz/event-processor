@@ -13,11 +13,11 @@
 2. **Client Implementations**
    ```
    pkg/eventprocessor/
+   ├── constants.go     # Shared constants and configuration
    ├── interface.go     # Core interfaces and types
    ├── simple.go        # Basic NATS implementation
    ├── jetstream.go     # JetStream functionality
-   ├── dedupe.go        # Deduplication logic
-   └── streaming.go     # NATS Streaming (STAN)
+   └── dedupe.go        # Deduplication logic
    ```
 
 ### Design Decisions
@@ -27,15 +27,16 @@
    - Consistent error handling across all clients
    - Simplified testing through interface mocking
 
-2. **Thread Safety**
+2. **Configuration Management**
+   - Centralized constants in `constants.go`
+   - Environment variable support
+   - Flexible client options
+   - Default values for common settings
+
+3. **Thread Safety**
    - All clients implement mutex-based synchronization
    - Read/Write locks for optimal performance
    - Safe concurrent access to shared resources
-
-3. **Configuration Management**
-   - Centralized configuration structure
-   - Environment variable support
-   - Flexible client options
 
 4. **Error Handling Strategy**
    - Error wrapping with context
@@ -43,6 +44,18 @@
    - Automatic reconnection handling
 
 ## Implementation Details
+
+### Configuration Constants
+```go
+// Connection Settings
+DefaultMaxReconnects = 5
+DefaultReconnectWaitSeconds = 5
+
+// JetStream Consumer Settings
+DefaultMaxRequestBatch = 100
+DefaultMaxRequestMaxBytes = 1024 * 1024  // 1MB
+DefaultInactiveThresholdMultiplier = 2
+```
 
 ### Message Deduplication
 - Uses message IDs based on timestamps
@@ -59,11 +72,13 @@
    - Persistent message storage
    - Stream replay capabilities
    - Enhanced delivery guarantees
+   - Configurable consumer settings
 
-3. **NATS Streaming**
-   - Durable subscriptions
-   - At-least-once delivery
-   - Message history and replay
+3. **Deduplication**
+   - Built on JetStream capabilities
+   - Prevents duplicate message processing
+   - Configurable deduplication window
+   - Durable message storage
 
 ### Testing Strategy
 - Table-driven tests
