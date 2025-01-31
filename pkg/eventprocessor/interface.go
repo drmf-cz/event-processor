@@ -9,30 +9,30 @@ import (
 	"go.uber.org/zap"
 )
 
-// Common errors
+// Common errors.
 var (
+	// ErrInvalidConfig is returned when the configuration is invalid.
 	ErrInvalidConfig = errors.New("invalid configuration")
 )
 
 // EventProcessor defines the interface for different event processing strategies.
+// It provides methods for publishing messages to streams and managing connections.
 type EventProcessor interface {
 	// PublishToStream publishes a message to a stream.
+	// ctx provides context for the operation
+	// topic is the stream or subject to publish to
+	// data is the message payload to publish
+	// Returns an error if the publish operation fails
 	PublishToStream(ctx context.Context, topic string, data []byte) error
-	// Close closes the connection.
+
+	// Close gracefully shuts down the event processor and its connections.
+	// ctx provides context for the shutdown operation
+	// Returns an error if the shutdown fails
 	Close(ctx context.Context) error
 }
 
-// Config holds common configuration for event processors.
-type Config struct {
-	URL           string
-	Token         string // Deprecated: Use CredsFile for JWT authentication
-	CredsFile     string // Path to the credentials file for JWT authentication
-	MaxReconnects int
-	ReconnectWait time.Duration
-	Logger        *zap.Logger
-}
-
 // NewConfig creates a new configuration with values from environment.
+// It initializes a production logger and sets default values for reconnection parameters.
 func NewConfig() *Config {
 	logger, err := zap.NewProduction()
 	if err != nil {
@@ -41,9 +41,10 @@ func NewConfig() *Config {
 
 	return &Config{
 		URL:           os.Getenv("NATS_URL"),
+		Token:         os.Getenv("NATS_TOKEN"),
 		CredsFile:     os.Getenv("NATS_CREDS"),
-		MaxReconnects: 5,
-		ReconnectWait: time.Second * 5,
+		MaxReconnects: DefaultMaxReconnects,
+		ReconnectWait: time.Second * DefaultReconnectWaitSeconds,
 		Logger:        logger,
 	}
 }
