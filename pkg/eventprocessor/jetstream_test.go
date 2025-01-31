@@ -37,7 +37,7 @@ func TestJetStreamClient(t *testing.T) {
 	t.Run("NewJetStreamClient", func(t *testing.T) {
 		t.Parallel()
 		client, err := eventprocessor.NewJetStreamClient(cfg, jetstream.StreamConfig{
-			Name:       "TEST_JETSREAM",
+			Name:       "TEST_JETSTREAM_1",
 			Subjects:   []string{"test.jetstream1.>"},
 			Duplicates: 100 * time.Millisecond,
 		})
@@ -55,7 +55,7 @@ func TestJetStreamClient(t *testing.T) {
 		testCfg.Logger = logger
 
 		client, err := eventprocessor.NewJetStreamClient(testCfg, jetstream.StreamConfig{
-			Name:       "TEST_JETSREAM",
+			Name:       "TEST_JETSTREAM_2",
 			Subjects:   []string{"test.jetstream2.>"},
 			Duplicates: 100 * time.Millisecond,
 		})
@@ -107,7 +107,7 @@ func TestJetStreamClient(t *testing.T) {
 			ReconnectWait: cfg.ReconnectWait,
 		}
 		_, err := eventprocessor.NewJetStreamClient(invalidCfg, jetstream.StreamConfig{
-			Name:     "TEST_JETSREAM",
+			Name:     "TEST_JETSTREAM_3",
 			Subjects: []string{"test.jetstream3.>"},
 		})
 		assert.Error(t, err)

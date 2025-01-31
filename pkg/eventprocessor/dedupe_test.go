@@ -37,7 +37,7 @@ func TestDeDupeJetStreamClient(t *testing.T) {
 	t.Run("NewDeDupeJetStreamClient", func(t *testing.T) {
 		t.Parallel()
 		client, err := NewDedupJetStreamClient(cfg, jetstream.StreamConfig{
-			Name:       "TEST_DEDUPE",
+			Name:       "TEST_DEDUPE_1",
 			Subjects:   []string{"test.dedupe1.>"},
 			Duplicates: time.Minute,
 		})
@@ -56,7 +56,7 @@ func TestDeDupeJetStreamClient(t *testing.T) {
 		testCfg.Logger = logger
 
 		client, err := NewDedupJetStreamClient(testCfg, jetstream.StreamConfig{
-			Name:       "TEST_DEDUPE",
+			Name:       "TEST_DEDUPE_2",
 			Subjects:   []string{"test.dedupe2.>"},
 			Duplicates: time.Minute,
 		})
@@ -131,7 +131,7 @@ func TestDeDupeJetStreamClient(t *testing.T) {
 		invalidCfg := cfg
 		invalidCfg.URL = invalidNatsURL
 		_, err := NewDedupJetStreamClient(invalidCfg, jetstream.StreamConfig{
-			Name:     "TEST_DEDUPE",
+			Name:     "TEST_DEDUPE_3",
 			Subjects: []string{"test.dedupe3.>"},
 		})
 		assert.Error(t, err)
