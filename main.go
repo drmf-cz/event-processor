@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof" // nolint: gosec
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -12,6 +15,33 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
 )
+
+// Default configuration values
+const (
+	DefaultPprofPort = 6060
+)
+
+func setupPprof(logger *zap.Logger) {
+	pprofPort := DefaultPprofPort
+	if portStr := os.Getenv("PPROF_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			pprofPort = port
+		} else {
+			logger.Warn("Invalid PPROF_PORT value, using default",
+				zap.String("value", portStr),
+				zap.Int("default", DefaultPprofPort),
+			)
+		}
+	}
+
+	go func() {
+		addr := fmt.Sprintf(":%d", pprofPort)
+		logger.Info("Starting pprof server", zap.String("addr", addr))
+		if err := http.ListenAndServe(addr, nil); err != nil { //nolint:gosec
+			logger.Error("pprof server failed", zap.Error(err))
+		}
+	}()
+}
 
 func setupClients(cfg *nats.Config) (
 	*nats.SimpleNatsClient,
@@ -82,6 +112,11 @@ func main() {
 			panic("failed to sync logger: " + err.Error())
 		}
 	}()
+
+	// Setup pprof if enabled
+	if os.Getenv("ENABLE_PPROF") == "true" {
+		setupPprof(cfg.Logger)
+	}
 
 	simpleClient, jsClient, dedupeClient, err := setupClients(cfg)
 	if err != nil {
