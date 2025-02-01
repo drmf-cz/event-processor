@@ -8,7 +8,6 @@ services:
     working_dir: /app
     volumes:
       - .:/app
-      - go-mod-cache:/go/pkg/mod
       - ~/.local/share/nats/nsc/keys/creds:/app/creds  # Mount NATS credentials
     command: go run -tags=pprof main.go
     environment:
@@ -24,6 +23,8 @@ services:
       - event-processor
     depends_on:
       - nats
+      - kafka
+      - zookeeper
 
   test:
     build:
@@ -32,7 +33,6 @@ services:
     working_dir: /app
     volumes:
       - .:/app
-      - go-mod-cache:/go/pkg/mod
     command: go test ./... -v
     environment:
       - CGO_ENABLED=0
