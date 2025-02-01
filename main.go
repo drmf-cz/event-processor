@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/drmf-cz/event-processor/pkg/eventprocessor/api"
 	"github.com/drmf-cz/event-processor/pkg/eventprocessor/nats"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
@@ -132,8 +133,23 @@ func main() {
 
 	go publishMessages(cfg.Logger, simpleClient)
 
+	// Setup and start HTTP server
+	apiServer := api.NewServer(api.DefaultConfig(), cfg.Logger, jsClient)
+	go func() {
+		if err := apiServer.Start(); err != nil {
+			cfg.Logger.Error("HTTP server failed", zap.Error(err))
+		}
+	}()
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	cfg.Logger.Info("Shutting down...")
+
+	// Graceful shutdown of HTTP server
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := apiServer.Stop(ctx); err != nil {
+		cfg.Logger.Error("Failed to shutdown HTTP server gracefully", zap.Error(err))
+	}
 }
