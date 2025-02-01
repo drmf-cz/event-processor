@@ -81,7 +81,7 @@ func TestJetStreamClient(t *testing.T) {
 		}
 
 		// Create consumer and start consuming
-		cc, err := client.CreateConsumer(ctx, "test-consumer")
+		cc, err := client.CreateConsumer(ctx, "test-jetstream2")
 		require.NoError(t, err)
 		require.NotNil(t, cc)
 		defer cc.Stop()

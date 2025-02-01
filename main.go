@@ -3,15 +3,46 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof" //nolint: gosec
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/drmf-cz/event-processor/pkg/eventprocessor/api"
 	"github.com/drmf-cz/event-processor/pkg/eventprocessor/nats"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
 )
+
+// Default configuration values.
+const (
+	DefaultPprofPort = 6060
+)
+
+func setupPprof(logger *zap.Logger) {
+	pprofPort := DefaultPprofPort
+	if portStr := os.Getenv("PPROF_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			pprofPort = port
+		} else {
+			logger.Warn("Invalid PPROF_PORT value, using default",
+				zap.String("value", portStr),
+				zap.Int("default", DefaultPprofPort),
+			)
+		}
+	}
+
+	go func() {
+		addr := fmt.Sprintf(":%d", pprofPort)
+		logger.Info("Starting pprof server", zap.String("addr", addr))
+		if err := http.ListenAndServe(addr, nil); err != nil { //nolint:gosec
+			logger.Error("pprof server failed", zap.Error(err))
+		}
+	}()
+}
 
 func setupClients(cfg *nats.Config) (
 	*nats.SimpleNatsClient,
@@ -83,6 +114,11 @@ func main() {
 		}
 	}()
 
+	// Setup pprof if enabled
+	if os.Getenv("ENABLE_PPROF") == "true" {
+		setupPprof(cfg.Logger)
+	}
+
 	simpleClient, jsClient, dedupeClient, err := setupClients(cfg)
 	if err != nil {
 		cfg.Logger.Fatal("Failed to setup clients", zap.Error(err))
@@ -97,8 +133,23 @@ func main() {
 
 	go publishMessages(cfg.Logger, simpleClient)
 
+	// Setup and start HTTP server
+	apiServer := api.NewServer(api.DefaultConfig(), cfg.Logger, jsClient)
+	go func() {
+		if err := apiServer.Start(); err != nil {
+			cfg.Logger.Error("HTTP server failed", zap.Error(err))
+		}
+	}()
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	cfg.Logger.Info("Shutting down...")
+
+	// Graceful shutdown of HTTP server
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := apiServer.Stop(ctx); err != nil {
+		cfg.Logger.Error("Failed to shutdown HTTP server gracefully", zap.Error(err))
+	}
 }

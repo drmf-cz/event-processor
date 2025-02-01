@@ -2,6 +2,7 @@ package nats_test
 
 import (
 	"context"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestDeDupeJetStreamClient(t *testing.T) { //nolint: gocognit, funlen
 	_ = logger.Sync() // Ignore sync errors in tests
 
 	cfg := &nats.Config{
-		URL:           "nats://nats:4222",
+		URL:           os.Getenv("NATS_URL"),
 		Token:         "test-token",
 		CredsFile:     "",
 		MaxReconnects: nats.DefaultMaxReconnects,

@@ -65,15 +65,11 @@ func (c *DedupJetStreamClient) DeduplicateConsumer(ctx context.Context, name str
 	)
 
 	consumerConfig := jetstream.ConsumerConfig{ //nolint: exhaustruct
-		Name:               name,
-		Durable:            name,
-		DeliverPolicy:      jetstream.DeliverAllPolicy,
-		AckPolicy:          jetstream.AckExplicitPolicy,
-		Description:        fmt.Sprintf("Deduplicated consumer %s for stream %s", name, c.streamConfig.Name),
-		MaxRequestBatch:    DefaultMaxRequestBatch,
-		MaxRequestExpires:  c.config.ReconnectWait,
-		MaxRequestMaxBytes: DefaultMaxRequestMaxBytes,
-		InactiveThreshold:  c.config.ReconnectWait * DefaultInactiveThresholdMultiplier,
+		Name:          name,
+		Durable:       name,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		Description:   fmt.Sprintf("Deduplicated consumer %s for stream %s", name, c.streamConfig.Name),
 	}
 
 	consumer, err := c.stream.CreateOrUpdateConsumer(ctx, consumerConfig)
