@@ -91,15 +91,11 @@ func (c *JetStreamClient) CreateConsumer(ctx context.Context, name string) (jets
 	}
 
 	consumerConfig := jetstream.ConsumerConfig{ //nolint: exhaustruct
-		Name:               name,
-		Durable:            name,
-		DeliverPolicy:      jetstream.DeliverAllPolicy,
-		AckPolicy:          jetstream.AckExplicitPolicy,
-		Description:        fmt.Sprintf("Consumer %s for stream %s", name, c.streamConfig.Name),
-		MaxRequestBatch:    DefaultMaxRequestBatch,
-		MaxRequestExpires:  c.config.ReconnectWait,
-		MaxRequestMaxBytes: DefaultMaxRequestMaxBytes,
-		InactiveThreshold:  c.config.ReconnectWait * DefaultInactiveThresholdMultiplier,
+		Name:          name,
+		Durable:       name,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		Description:   fmt.Sprintf("Consumer %s for stream %s", name, c.streamConfig.Name),
 	}
 
 	consumer, err := c.stream.CreateOrUpdateConsumer(ctx, consumerConfig)

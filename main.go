@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	_ "net/http/pprof" // nolint: gosec
+	_ "net/http/pprof" //nolint: gosec
 	"os"
 	"os/signal"
 	"strconv"
@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Default configuration values
+// Default configuration values.
 const (
 	DefaultPprofPort = 6060
 )
