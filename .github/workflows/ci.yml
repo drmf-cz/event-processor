@@ -78,6 +78,7 @@ jobs:
 
       - name: Run E2E Tests with Profiling
         run: |
+          sleep 60
           # TODO: Run load requests on API and collect CPU profile
           
           # Collect memory profile
